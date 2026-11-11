@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Smart Pump Control</title>
+
+<script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
+
+<style>
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  padding: 20px;
+  font-family: Arial, sans-serif;
+  background: #101827;
+  color: white;
+}
+
+.container {
+  max-width: 430px;
+  margin: auto;
+}
+
+h1 {
+  text-align: center;
+  color: #38bdf8;
+}
+
+.subtitle {
+  text-align: center;
+  color: #aab7c8;
+}
+
+.card {
+  background: #1e293b;
+  padding: 20px;
+  border-radius: 16px;
+  margin-top: 18px;
+}
+
+.status {
+  text-align: center;
+  font-size: 22px;
+  font-weight: bold;
+  padding: 15px;
+  border-radius: 10px;
+  background: #334155;
+}
+
+.on {
+  background: #166534;
+  color: #bbf7d0;
+}
+
+.off {
+  background: #7f1d1d;
+  color: #fecaca;
+}
+
+button {
+  width: 100%;
+  border: none;
+  padding: 16px;
+  border-radius: 10px;
+  font-size: 18px;
+  font-weight: bold;
+  margin-top: 12px;
+  color: white;
+}
+
+.btn-on {
+  background: #16a34a;
+}
+
+.btn-off {
+  background: #dc2626;
+}
+
+.btn-timer {
+  background: #2563eb;
+}
+
+input {
+  width: 100%;
+  padding: 13px;
+  margin-top: 10px;
+  border-radius: 8px;
+  border: none;
+  font-size: 17px;
+}
+
+.small {
+  color: #aab7c8;
+  font-size: 13px;
+}
+
+#connection {
+  text-align: center;
+  color: #facc15;
+  margin-top: 12px;
+}
+</style>
+</head>
+
+<body>
+
+<div class="container">
+
+<h1>SMART PUMP</h1>
+<p class="subtitle">ESP8266 Internet Control</p>
+
+<div class="card">
+  <h3>Status Pompa</h3>
+  <div id="status" class="status off">BELUM TERHUBUNG</div>
+  <p id="connection">Menghubungkan...</p>
+</div>
+
+<div class="card">
+  <h3>Kontrol Manual</h3>
+  <button class="btn-on" onclick="sendCommand('ON')">
+    POMPA ON
+  </button>
+
+  <button class="btn-off" onclick="sendCommand('OFF')">
+    POMPA OFF
+  </button>
+</div>
+
+<div class="card">
+  <h3>Timer Otomatis</h3>
+  <label>Durasi pompa (detik)</label>
+  <input
+    type="number"
+    id="timer"
+    min="0"
+    max="86400"
+    value="60"
+  >
+
+  <p class="small">
+    Contoh: 60 = 1 menit, 300 = 5 menit.
+    Isi 0 untuk menonaktifkan timer.
+  </p>
+
+  <button class="btn-timer" onclick="setTimer()">
+    SIMPAN TIMER
+  </button>
+</div>
+
+<div class="card">
+  <h3>Pengaturan Koneksi</h3>
+
+  <label>Username Adafruit IO</label>
+  <input id="username" value="devano">
+
+  <label>Active Key Adafruit IO</label>
+  <input
+    id="key"
+    type="password"
+    placeholder="Masukkan Active Key"
+  >
+
+  <button class="btn-timer" onclick="connectMQTT()">
+    HUBUNGKAN
+  </button>
+
+  <p class="small">
+    Jangan bagikan Active Key kepada orang lain.
+  </p>
+</div>
+
+</div>
+
+<script>
+let mqttClient = null;
+let isConnected = false;
+
+function connectMQTT() {
+
+  const username =
+    document.getElementById("username").value.trim();
+
+  const key =
+    document.getElementById("key").value.trim();
+
+  if (!username || !key) {
+    alert("Masukkan username dan Active Key!");
+    return;
+  }
+
+  if (mqttClient) {
+    mqttClient.end(true);
+  }
+
+  document.getElementById("connection").innerText =
+    "Menghubungkan ke Adafruit IO...";
+
+  mqttClient = mqtt.connect(
+    "wss://io.adafruit.com:443/mqtt",
+    {
+      username: username,
+      password: key,
+      clientId:
+        "smartpump_" +
+        Math.random().toString(16).slice(2)
+    }
+  );
+
+  mqttClient.on("connect", function() {
+
+    isConnected = true;
+
+    document.getElementById("connection").innerText =
+      "TERHUBUNG KE ADAFRUIT IO";
+
+    mqttClient.subscribe(
+      username + "/feeds/pump-status"
+    );
+
+  });
+
+  mqttClient.on("message", function(topic, message) {
+
+    const value = message.toString().trim().toUpperCase();
+
+    const status = document.getElementById("status");
+
+    if (value === "ON") {
+      status.innerText = "POMPA MENYALA";
+      status.className = "status on";
+    }
+
+    else if (value === "OFF") {
+      status.innerText = "POMPA MATI";
+      status.className = "status off";
+    }
+
+  });
+
+  mqttClient.on("error", function(error) {
+
+    isConnected = false;
+
+    document.getElementById("connection").innerText =
+      "Koneksi gagal: " + error.message;
+
+  });
+
+  mqttClient.on("close", function() {
+
+    isConnected = false;
+
+    document.getElementById("connection").innerText =
+      "Koneksi terputus";
+
+  });
+
+}
+
+function sendCommand(command) {
+
+  if (!isConnected) {
+    alert("Hubungkan Adafruit IO terlebih dahulu!");
+    return;
+  }
+
+  const username =
+    document.getElementById("username").value.trim();
+
+  mqttClient.publish(
+    username + "/feeds/pump-control",
+    command
+  );
+}
+
+function setTimer() {
+
+  if (!isConnected) {
+    alert("Hubungkan Adafruit IO terlebih dahulu!");
+    return;
+  }
+
+  const seconds = Number(
+    document.getElementById("timer").value
+  );
+
+  if (
+    !Number.isInteger(seconds) ||
+    seconds < 0 ||
+    seconds > 86400
+  ) {
+    alert("Timer harus 0 sampai 86400 detik!");
+    return;
+  }
+
+  const username =
+    document.getElementById("username").value.trim();
+
+  mqttClient.publish(
+    username + "/feeds/pump-timer",
+    String(seconds)
+  );
+
+  alert("Pengaturan timer dikirim!");
+}
+</script>
+
+</body>
+</html>
